@@ -1,13 +1,8 @@
+import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:isar/isar.dart';
-
-import '../local/isar_service.dart';
+import '../local/database.dart';
 import '../models/models.dart';
-
-final organizerRepositoryProvider = Provider<OrganizerRepository>((ref) {
-  final isar = ref.watch(isarServiceProvider).isar;
-  return OrganizerRepository(isar);
-});
+import '../../main.dart'; // for databaseProvider
 
 class OrganizerSnapshot {
   OrganizerSnapshot({
@@ -49,19 +44,24 @@ class OrganizerSnapshot {
   }
 }
 
+final organizerRepositoryProvider = Provider<OrganizerRepository>((ref) {
+  final db = ref.watch(databaseProvider);
+  return OrganizerRepository(db);
+});
+
 class OrganizerRepository {
-  OrganizerRepository(this._isar);
-  final Isar _isar;
+  OrganizerRepository(this._db);
+  final AppDatabase _db;
 
   Future<OrganizerSnapshot> loadSnapshot() async {
-    final tasks = await _isar.tasks.where().sortByDueDate().findAll();
-    final events = await _isar.calendarEvents.where().sortByStart().findAll();
-    final habits = await _isar.habits.where().findAll();
-    final goals = await _isar.goals.where().findAll();
-    final notes = await _isar.notes.where().findAll();
-    final checklists = await _isar.checklists.where().findAll();
-    final moods = await _isar.moodEntrys.where().sortByDateDesc().findAll();
-    final healthEntries = await _isar.healthEntrys.where().sortByDateDesc().findAll();
+    final tasks = await (_db.select(_db.tasks)..orderBy([(t) => OrderingTerm(expression: t.dueDate)])).get();
+    final events = await (_db.select(_db.calendarEvents)..orderBy([(e) => OrderingTerm(expression: e.start)])).get();
+    final habits = await _db.select(_db.habits).get();
+    final goals = await _db.select(_db.goals).get();
+    final notes = await _db.select(_db.notes).get();
+    final checklists = await _db.select(_db.checklists).get();
+    final moods = await (_db.select(_db.moodEntries)..orderBy([(m) => OrderingTerm(expression: m.date, mode: OrderingMode.desc)])).get();
+    final health = await (_db.select(_db.healthEntries)..orderBy([(h) => OrderingTerm(expression: h.date, mode: OrderingMode.desc)])).get();
 
     return OrganizerSnapshot(
       tasks: tasks,
@@ -71,109 +71,186 @@ class OrganizerRepository {
       notes: notes,
       checklists: checklists,
       moods: moods,
-      healthEntries: healthEntries,
+      healthEntries: health,
     );
   }
 
   Future<List<Task>> tasksForDate(DateTime day) async {
     final start = DateTime(day.year, day.month, day.day);
     final end = start.add(const Duration(days: 1));
-    return _isar.tasks.filter().dueDateBetween(start, end).findAll();
+    return (_db.select(_db.tasks)..where((t) => t.dueDate.isBetweenValues(start, end))).get();
   }
 
   Future<List<CalendarEvent>> eventsForDate(DateTime day) async {
     final start = DateTime(day.year, day.month, day.day);
     final end = start.add(const Duration(days: 1));
-    return _isar.calendarEvents.filter().startBetween(start, end).findAll();
+    return (_db.select(_db.calendarEvents)..where((e) => e.start.isBetweenValues(start, end))).get();
   }
 
   Future<void> saveTask(Task task) async {
-    await _isar.writeTxn(() async => _isar.tasks.put(task));
+    if (task.id == 0) {
+      await _db.into(_db.tasks).insert(TasksCompanion.insert(
+        title: task.title,
+        description: Value(task.description),
+        priority: task.priority,
+        status: task.status,
+        dueDate: Value(task.dueDate),
+        area: task.area,
+        recurrence: Value(task.recurrence),
+        reminder: Value(task.reminder),
+        subtasks: task.subtasks,
+      ));
+    } else {
+      await _db.update(_db.tasks).replace(task);
+    }
   }
 
-  Future<void> updateTaskStatus(Id id, TaskStatus status) async {
-    await _isar.writeTxn(() async {
-      final task = await _isar.tasks.get(id);
-      if (task != null) {
-        task.status = status;
-        await _isar.tasks.put(task);
-      }
-    });
+  Future<void> updateTaskStatus(int id, TaskStatus status) async {
+    await (_db.update(_db.tasks)..where((t) => t.id.equals(id))).write(TasksCompanion(status: Value(status)));
   }
 
-  Future<void> rescheduleTask(Id id, DateTime newDate) async {
-    await _isar.writeTxn(() async {
-      final task = await _isar.tasks.get(id);
-      if (task != null) {
-        task.dueDate = newDate;
-        task.status = TaskStatus.open;
-        await _isar.tasks.put(task);
-      }
-    });
+  Future<void> rescheduleTask(int id, DateTime newDate) async {
+    await (_db.update(_db.tasks)..where((t) => t.id.equals(id))).write(TasksCompanion(
+      dueDate: Value(newDate),
+      status: const Value(TaskStatus.open),
+    ));
   }
 
-  Future<void> moveTaskToLater(Id id) async => updateTaskStatus(id, TaskStatus.later);
+  Future<void> moveTaskToLater(int id) async => updateTaskStatus(id, TaskStatus.later);
 
   Future<void> saveHabit(Habit habit) async {
-    await _isar.writeTxn(() async => _isar.habits.put(habit));
+    if (habit.id == 0) {
+      await _db.into(_db.habits).insert(HabitsCompanion.insert(
+        title: habit.title,
+        description: Value(habit.description),
+        recurrence: Value(habit.recurrence),
+        area: habit.area,
+        currentStreak: Value(habit.currentStreak),
+        bestStreak: Value(habit.bestStreak),
+        graceDays: Value(habit.graceDays),
+        catchUpAllowed: Value(habit.catchUpAllowed),
+        reminder: Value(habit.reminder),
+      ));
+    } else {
+      await _db.update(_db.habits).replace(habit);
+    }
   }
 
   Future<void> saveHabitCompletion(Habit habit, {required bool completed}) async {
-    await _isar.writeTxn(() async {
-      var existing = await _isar.habits.get(habit.id);
-      existing ??= habit;
-      if (completed) {
-        existing.currentStreak += 1;
-        if (existing.currentStreak > existing.bestStreak) {
-          existing.bestStreak = existing.currentStreak;
-        }
-      } else {
-        existing.currentStreak = existing.catchUpAllowed ? existing.currentStreak : 0;
+    var currentStreak = habit.currentStreak;
+    var bestStreak = habit.bestStreak;
+
+    if (completed) {
+      currentStreak += 1;
+      if (currentStreak > bestStreak) {
+        bestStreak = currentStreak;
       }
-      await _isar.habits.put(existing);
-    });
+    } else {
+      currentStreak = habit.catchUpAllowed ? currentStreak : 0;
+    }
+
+    await _db.update(_db.habits).replace(habit.copyWith(
+      currentStreak: currentStreak,
+      bestStreak: bestStreak,
+    ));
   }
 
   Future<void> saveGoal(Goal goal) async {
-    await _isar.writeTxn(() async => _isar.goals.put(goal));
+    if (goal.id == 0) {
+      await _db.into(_db.goals).insert(GoalsCompanion.insert(
+        title: goal.title,
+        description: Value(goal.description),
+        area: goal.area,
+        weeklyTarget: Value(goal.weeklyTarget),
+        progress: Value(goal.progress),
+        milestones: goal.milestones,
+      ));
+    } else {
+      await _db.update(_db.goals).replace(goal);
+    }
   }
 
   Future<void> saveEvent(CalendarEvent event) async {
-    await _isar.writeTxn(() async => _isar.calendarEvents.put(event));
+    if (event.id == 0) {
+      await _db.into(_db.calendarEvents).insert(CalendarEventsCompanion.insert(
+        title: event.title,
+        description: Value(event.description),
+        start: event.start,
+        end: event.end,
+        area: event.area,
+        location: Value(event.location),
+        travelBufferMinutes: Value(event.travelBufferMinutes),
+      ));
+    } else {
+      await _db.update(_db.calendarEvents).replace(event);
+    }
   }
 
   Future<void> saveNote(Note note) async {
-    await _isar.writeTxn(() async => _isar.notes.put(note));
+    if (note.id == 0) {
+      await _db.into(_db.notes).insert(NotesCompanion.insert(
+        title: note.title,
+        content: note.content,
+        area: note.area,
+        createdAt: Value(note.createdAt),
+      ));
+    } else {
+      await _db.update(_db.notes).replace(note);
+    }
   }
 
   Future<void> saveChecklist(Checklist checklist) async {
-    await _isar.writeTxn(() async => _isar.checklists.put(checklist));
+    if (checklist.id == 0) {
+      await _db.into(_db.checklists).insert(ChecklistsCompanion.insert(
+        title: checklist.title,
+        items: checklist.items,
+        area: checklist.area,
+      ));
+    } else {
+      await _db.update(_db.checklists).replace(checklist);
+    }
   }
 
   Future<void> saveMood(MoodEntry entry) async {
-    await _isar.writeTxn(() async => _isar.moodEntrys.put(entry));
+    if (entry.id == 0) {
+      await _db.into(_db.moodEntries).insert(MoodEntriesCompanion.insert(
+        mood: entry.mood,
+        energy: entry.energy,
+        note: Value(entry.note),
+        date: Value(entry.date),
+      ));
+    } else {
+      await _db.update(_db.moodEntries).replace(entry);
+    }
   }
 
   Future<void> saveHealthEntry(HealthEntry entry) async {
-    await _isar.writeTxn(() async => _isar.healthEntrys.put(entry));
+    if (entry.id == 0) {
+      await _db.into(_db.healthEntries).insert(HealthEntriesCompanion.insert(
+        sleepHours: entry.sleepHours,
+        waterCups: entry.waterCups,
+        exerciseMinutes: entry.exerciseMinutes,
+        date: Value(entry.date),
+      ));
+    } else {
+      await _db.update(_db.healthEntries).replace(entry);
+    }
   }
 
   Future<List<String>> globalSearch(String query) async {
     if (query.isEmpty) return [];
     final lower = query.toLowerCase();
-    final results = <String>[];
+    
+    final tasks = await (_db.select(_db.tasks)..where((t) => t.title.like('%$query%'))).get();
+    final events = await (_db.select(_db.calendarEvents)..where((e) => e.title.like('%$query%'))).get();
+    final goals = await (_db.select(_db.goals)..where((g) => g.title.like('%$query%'))).get();
+    final notes = await (_db.select(_db.notes)..where((n) => n.title.like('%$query%') | n.content.like('%$query%'))).get();
 
-    final tasks = await _isar.tasks.filter().titleContains(lower, caseSensitive: false).findAll();
-    final notes = await _isar.notes.filter().titleContains(lower, caseSensitive: false).or().contentContains(lower, caseSensitive: false).findAll();
-    final events = await _isar.calendarEvents.filter().titleContains(lower, caseSensitive: false).findAll();
-    final goals = await _isar.goals.filter().titleContains(lower, caseSensitive: false).findAll();
-
-    results
-      ..addAll(tasks.map((t) => 'Task: ${t.title}'))
-      ..addAll(events.map((e) => 'Event: ${e.title}'))
-      ..addAll(goals.map((g) => 'Goal: ${g.title}'))
-      ..addAll(notes.map((n) => 'Note: ${n.title}'));
-
-    return results;
+    return [
+      ...tasks.map((t) => 'Task: ${t.title}'),
+      ...events.map((e) => 'Event: ${e.title}'),
+      ...goals.map((g) => 'Goal: ${g.title}'),
+      ...notes.map((n) => 'Note: ${n.title}'),
+    ];
   }
 }

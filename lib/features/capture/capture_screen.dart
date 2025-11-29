@@ -52,33 +52,50 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         final start = parsed.suggestedDate ?? DateTime.now().add(const Duration(hours: 1));
         await repo.saveEvent(
           CalendarEvent(
+            id: 0,
             title: parsed.title,
+            description: null,
             start: start,
             end: start.add(const Duration(hours: 1)),
             area: parsed.area,
+            location: null,
+            travelBufferMinutes: 0,
           ),
         );
         break;
       case 'habit':
         await repo.saveHabit(
           Habit(
+            id: 0,
             title: parsed.title,
+            description: null,
             recurrence: RecurrenceRule(frequency: RecurrenceFrequency.daily),
             area: parsed.area,
             currentStreak: 1,
+            bestStreak: 0,
+            graceDays: 1,
+            catchUpAllowed: true,
+            reminder: null,
           ),
         );
         break;
       case 'note':
-        await repo.saveNote(Note(title: parsed.title, content: _controller.text, area: parsed.area));
+        await repo.saveNote(Note(id: 0, title: parsed.title, content: _controller.text, area: parsed.area, createdAt: DateTime.now()));
         break;
       default:
         await repo.saveTask(
           Task(
+            id: 0,
             title: parsed.title,
+            description: null,
             priority: parsed.priority,
+            status: TaskStatus.open,
             dueDate: parsed.suggestedDate ?? DateTime.now(),
             area: parsed.area,
+            recurrence: null,
+            reminder: null,
+            subtasks: const [],
+            createdAt: DateTime.now(),
           ),
         );
     }

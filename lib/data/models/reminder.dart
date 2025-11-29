@@ -1,8 +1,8 @@
-import 'package:isar/isar.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 part 'reminder.g.dart';
 
-@embedded
+@JsonSerializable()
 class Reminder {
   Reminder({
     this.scheduledFor,
@@ -20,21 +20,6 @@ class Reminder {
   String? locationLabel;
   String? note;
 
-  Map<String, dynamic> toJson() => {
-        'scheduledFor': scheduledFor?.toIso8601String(),
-        'isLocationBased': isLocationBased,
-        'latitude': latitude,
-        'longitude': longitude,
-        'locationLabel': locationLabel,
-        'note': note,
-      };
-
-  factory Reminder.fromJson(Map<String, dynamic> json) => Reminder(
-        scheduledFor: json['scheduledFor'] != null ? DateTime.tryParse(json['scheduledFor'] as String) : null,
-        isLocationBased: json['isLocationBased'] as bool? ?? false,
-        latitude: (json['latitude'] as num?)?.toDouble(),
-        longitude: (json['longitude'] as num?)?.toDouble(),
-        locationLabel: json['locationLabel'] as String?,
-        note: json['note'] as String?,
-      );
+  factory Reminder.fromJson(Map<String, dynamic> json) => _$ReminderFromJson(json);
+  Map<String, dynamic> toJson() => _$ReminderToJson(this);
 }

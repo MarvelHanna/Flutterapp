@@ -36,7 +36,7 @@ class OrganizerController extends AsyncNotifier<OrganizerSnapshot> {
   }
 
   Future<void> logMood(int mood, int energy) async {
-    final entry = MoodEntry(date: DateTime.now(), mood: mood, energy: energy);
+    final entry = MoodEntry(id: 0, date: DateTime.now(), mood: mood, energy: energy, note: null);
     await ref.read(organizerRepositoryProvider).saveMood(entry);
     await refresh();
   }

@@ -1,10 +1,10 @@
-import 'package:isar/isar.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 part 'recurrence_rule.g.dart';
 
 enum RecurrenceFrequency { none, daily, weekly, monthly, custom }
 
-@embedded
+@JsonSerializable()
 class RecurrenceRule {
   RecurrenceRule({
     this.frequency = RecurrenceFrequency.none,
@@ -13,26 +13,13 @@ class RecurrenceRule {
     this.endsOn,
   });
 
-  @Enumerated(EnumType.name)
   RecurrenceFrequency frequency;
   int interval;
   List<int> weekdays; // 1=Mon ... 7=Sun
   DateTime? endsOn;
 
-  Map<String, dynamic> toJson() => {
-        'frequency': frequency.name,
-        'interval': interval,
-        'weekdays': weekdays,
-        'endsOn': endsOn?.toIso8601String(),
-      };
-
-  factory RecurrenceRule.fromJson(Map<String, dynamic> json) => RecurrenceRule(
-        frequency: RecurrenceFrequency.values
-            .firstWhere((f) => f.name == json['frequency'], orElse: () => RecurrenceFrequency.none),
-        interval: json['interval'] as int? ?? 1,
-        weekdays: (json['weekdays'] as List<dynamic>?)?.cast<int>() ?? const [],
-        endsOn: json['endsOn'] != null ? DateTime.tryParse(json['endsOn'] as String) : null,
-      );
+  factory RecurrenceRule.fromJson(Map<String, dynamic> json) => _$RecurrenceRuleFromJson(json);
+  Map<String, dynamic> toJson() => _$RecurrenceRuleToJson(this);
 
   String get label {
     switch (frequency) {
