@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:drift/web.dart';
 import 'package:flutter/foundation.dart';
 import '../models/life_area.dart';
 import '../models/task_priority.dart';
@@ -98,12 +99,12 @@ class AppDatabase extends _$AppDatabase {
   int get schemaVersion => 1;
 
   static QueryExecutor _openConnection() {
-    return driftDatabase(
-      name: 'app_db',
-      web: DriftWebOptions(
-        sqlite3Wasm: Uri.parse('sqlite3.wasm'),
-        driftWorker: Uri.parse('drift_worker.js'),
-      ),
-    );
+    if (kIsWeb) {
+      // Use the built-in web database to avoid external wasm/worker incompatibilities
+      // across hosting environments. IndexedDB storage is handled internally.
+      return WebDatabase('app_db');
+    }
+
+    return driftDatabase(name: 'app_db');
   }
 }
